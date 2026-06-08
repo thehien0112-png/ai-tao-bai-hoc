@@ -82,11 +82,38 @@ function ListScreen({rows, onOpenAI}){
   );
 }
 
-// ---------- Wizard shell ----------
-const STEP_LABELS = ['Nguồn dữ liệu','Chọn tiết','Loại bài giảng','Xác nhận'];
+// ---------- Accordion item ----------
+const STEP_DEFS = [
+  {title:'Nguồn dữ liệu', desc:'Sách & file phân phối chương trình'},
+  {title:'Chọn tiết học', desc:'Chọn các tiết cần tạo bài giảng'},
+  {title:'Loại bài giảng', desc:'Bài đọc / Sách nói / Video / Bài tập'},
+  {title:'Xác nhận & tạo', desc:'Kiểm tra và bắt đầu tạo bằng AI'},
+];
+function AccItem({index, open, done, locked, summary, onHeader, children}){
+  const def = STEP_DEFS[index];
+  return (
+    <div className={'acc-item'+(open?' open':'')+(done?' done':'')+(locked?' locked':'')}>
+      <button className="acc-head" onClick={()=>!locked && onHeader(index)} disabled={locked}>
+        <span className="acc-dot">{done && !open ? <Icon name="check" size={16} stroke={3}/> : index+1}</span>
+        <div className="acc-head-main">
+          <div className="acc-title">{def.title}</div>
+          {open ? <div className="acc-summary alt">{def.desc}</div>
+            : <div className="acc-summary">{summary}</div>}
+        </div>
+        {done && !open && <span className="acc-edit"><Icon name="edit" size={14}/>Sửa</span>}
+        {locked && <span className="acc-lock"><Icon name="lock" size={14}/></span>}
+        {!locked && <span className="acc-caret"><Icon name="chevDown" size={18}/></span>}
+      </button>
+      {open && <div className="acc-body">{children}</div>}
+    </div>
+  );
+}
+
+// ---------- Wizard shell (vertical accordion) ----------
 function Wizard({onClose, onFinish}){
   const allKeys = useMemo(()=>WEEKS.flatMap((w,wi)=>w.entries.map((_,ei)=>wi+'-'+ei)),[]);
-  const [step, setStep] = useState(0);
+  const [openStep, setOpenStep] = useState(0);
+  const [maxReached, setMaxReached] = useState(0);
   const [src, setSrc] = useState({book:null, ppct:null});
   const [selected, setSelected] = useState(new Set(allKeys)); // default ALL
   const [openWeeks, setOpenWeeks] = useState(new Set([0]));
@@ -98,12 +125,23 @@ function Wizard({onClose, onFinish}){
 
   const chosenTypes = TYPES.filter(t=>types.has(t.id));
   const total = selected.size*chosenTypes.length;
+  const busy = phase==='gen';
 
-  const canNext = step===0 ? !!src.ppct : step===1 ? selected.size>0 : step===2 ? types.size>0 : true;
+  // summaries shown on collapsed/completed headers
+  const summaries = [
+    src.ppct ? `Tiếng Việt · Lớp 2 — ${src.book?'SGK + ':''}File PPCT` : 'Chưa chọn nguồn dữ liệu',
+    `Đã chọn ${selected.size}/${allKeys.length} tiết`,
+    chosenTypes.length ? chosenTypes.map(t=>t.name).join(' · ') : 'Chưa chọn loại bài giảng',
+    `${total} bài giảng sẽ được tạo`,
+  ];
+
+  const canContinue = [ !!src.ppct, selected.size>0, types.size>0, true ];
+
+  const goHeader = i => { if(!busy) setOpenStep(i); };
+  const advance = i => { setMaxReached(m=>Math.max(m, i+1)); setOpenStep(i+1); };
 
   const startGen = ()=>{
-    const items=[]; let count=0;
-    // build a representative gen list (cap to keep UI tidy)
+    const items=[];
     const selArr=[...selected].slice(0,6);
     selArr.forEach(k=>{
       const [wi,ei]=k.split('-').map(Number); const e=WEEKS[wi].entries[ei];
@@ -122,14 +160,45 @@ function Wizard({onClose, onFinish}){
     setTimeout(tick,400);
   };
 
-  const next = ()=>{
-    if(step<3){ setStep(step+1); return; }
-    if(phase==='review'){ startGen(); return; }
-    if(phase==='done'){ onFinish(total); }
+  // action row inside each accordion body
+  const Actions = ({index})=>{
+    if(index<3){
+      return (
+        <div className="acc-actions">
+          {index>0 ? <button className="btn btn-ghost" onClick={()=>setOpenStep(index-1)}><Icon name="chevLeft" size={16}/>Quay lại</button> : <span/>}
+          <div style={{display:'flex',alignItems:'center',gap:16}}>
+            {index===1 && <span className="foot-info">Đã chọn <b>{selected.size}</b> tiết</span>}
+            {index===2 && <span className="foot-info">Sẽ tạo <b>{total}</b> bài giảng</span>}
+            <button className="btn btn-primary btn-lg" disabled={!canContinue[index]} onClick={()=>advance(index)}>
+              Tiếp tục<Icon name="chevRight" size={16}/>
+            </button>
+          </div>
+        </div>
+      );
+    }
+    // step 3
+    if(phase==='review') return (
+      <div className="acc-actions">
+        <button className="btn btn-ghost" onClick={()=>setOpenStep(2)}><Icon name="chevLeft" size={16}/>Quay lại</button>
+        <button className="btn btn-ai btn-lg" disabled={total===0} onClick={startGen}>
+          <Icon name="sparkles" size={16} fill/>Bắt đầu tạo {total} bài
+        </button>
+      </div>
+    );
+    if(phase==='gen') return (
+      <div className="acc-actions" style={{justifyContent:'flex-end'}}>
+        <button className="btn btn-lg" disabled><span className="spin" style={{marginRight:6}}/>Đang tạo…</button>
+      </div>
+    );
+    return (
+      <div className="acc-actions" style={{justifyContent:'center'}}>
+        <button className="btn btn-primary btn-lg" onClick={()=>onFinish(total)}><Icon name="check" size={16} stroke={3}/>Hoàn tất</button>
+      </div>
+    );
   };
 
   return (
-    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && phase!=='gen') onClose();}}>
+    <div className="overlay" onMouseDown={e=>{if(e.target===e.currentTarget && !busy) onClose();}}>
       <div className="wizard">
         <div className="wz-head">
           <div className="wz-title">
@@ -137,45 +206,30 @@ function Wizard({onClose, onFinish}){
             <div><h2>Tạo bài học & câu hỏi bằng AI</h2>
               <p>Tiếng Việt · Lớp 2 — từ file phân phối chương trình</p></div>
           </div>
-          <button className="wz-close" onClick={onClose} disabled={phase==='gen'}><Icon name="x" size={18}/></button>
+          <button className="wz-close" onClick={onClose} disabled={busy}><Icon name="x" size={18}/></button>
         </div>
 
-        <div className="steps">
-          {STEP_LABELS.map((l,i)=>(
-            <React.Fragment key={i}>
-              {i>0 && <div className={'step-line'+(i<=step?' fill':'')}/>}
-              <div className={'step'+(i===step?' active':'')+(i<step?' done':'')}>
-                <div className="dot">{i<step? <Icon name="check" size={15} stroke={3}/> : i+1}</div>
-                <div className="lbl">{l}</div>
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
+        <div className="wz-body acc-scroll">
+          <div className="acc">
+            <AccItem index={0} open={openStep===0} done={maxReached>0} locked={false} summary={summaries[0]} onHeader={goHeader}>
+              <Step1 src={src} setSrc={setSrc}/>
+              <Actions index={0}/>
+            </AccItem>
 
-        <div className="wz-body">
-          {step===0 && <Step1 src={src} setSrc={setSrc}/>}
-          {step===1 && <Step2 selected={selected} setSelected={setSelected} openWeeks={openWeeks} setOpenWeeks={setOpenWeeks}/>}
-          {step===2 && <Step3 types={types} setTypes={setTypes} cfg={cfg} setCfg={setCfg}/>}
-          {step===3 && <Step4 selCount={selected.size} types={types} cfg={cfg} phase={phase} progress={progress} genList={genList}/>}
-        </div>
+            <AccItem index={1} open={openStep===1} done={maxReached>1} locked={maxReached<1} summary={summaries[1]} onHeader={goHeader}>
+              <Step2 selected={selected} setSelected={setSelected} openWeeks={openWeeks} setOpenWeeks={setOpenWeeks}/>
+              <Actions index={1}/>
+            </AccItem>
 
-        <div className="wz-foot">
-          <div>
-            {step>0 && phase==='review' && <button className="btn" onClick={()=>setStep(step-1)}><Icon name="chevLeft" size={16}/>Quay lại</button>}
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:16}}>
-            <div className="foot-info">
-              {step===1 && <>Đã chọn <b>{selected.size}</b> tiết</>}
-              {step===2 && <>Sẽ tạo <b>{total}</b> bài giảng</>}
-              {step===3 && phase==='review' && <>Tổng <b>{total}</b> bài giảng</>}
-            </div>
-            {phase!=='done' && phase!=='gen' && (
-              <button className="btn btn-primary btn-lg" disabled={!canNext} onClick={next}>
-                {step<3? <>Tiếp tục<Icon name="chevRight" size={16}/></> : <><Icon name="sparkles" size={16} fill/>Bắt đầu tạo {total} bài</>}
-              </button>
-            )}
-            {phase==='gen' && <button className="btn btn-lg" disabled><span className="spin" style={{marginRight:4}}/>Đang tạo…</button>}
-            {phase==='done' && <button className="btn btn-primary btn-lg" onClick={()=>onFinish(total)}><Icon name="check" size={16} stroke={3}/>Hoàn tất</button>}
+            <AccItem index={2} open={openStep===2} done={maxReached>2} locked={maxReached<2} summary={summaries[2]} onHeader={goHeader}>
+              <Step3 types={types} setTypes={setTypes} cfg={cfg} setCfg={setCfg}/>
+              <Actions index={2}/>
+            </AccItem>
+
+            <AccItem index={3} open={openStep===3} done={phase==='done'} locked={maxReached<3} summary={summaries[3]} onHeader={goHeader}>
+              <Step4 selCount={selected.size} types={types} cfg={cfg} phase={phase} progress={progress} genList={genList}/>
+              <Actions index={3}/>
+            </AccItem>
           </div>
         </div>
       </div>

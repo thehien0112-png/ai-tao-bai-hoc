@@ -27,6 +27,8 @@ const ICONS = {
   layers:'M12 2l9 5-9 5-9-5 9-5z M3 12l9 5 9-5 M3 17l9 5 9-5',
   filter:'M22 3H2l8 9.5V19l4 2v-8.5z',
   wand:'M15 4V2 M15 16v-2 M8 9h2 M20 9h2 M17.8 11.8L19 13 M15 9h0 M17.8 6.2L19 5 M3 21l9-9 M12.2 6.2L11 5',
+  edit:'M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7 M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z',
+  lock:'M5 11h14a0 0 0 010 0v9a0 0 0 010 0H5a0 0 0 010 0v-9a0 0 0 010 0z M8 11V7a4 4 0 018 0v4',
 };
 function Icon({name, size=20, stroke=2, fill=false, style, ...rest}){
   const d = ICONS[name] || '';
